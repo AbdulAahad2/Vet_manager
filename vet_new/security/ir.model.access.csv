@@ -1,0 +1,11 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_vet_animal_owner,vet.animal.owner,model_vet_animal_owner,,1,1,1,1
+access_vet_animal,vet.animal,model_vet_animal,,1,1,1,1
+access_vet_animal_doctor,vet.animal.doctor,model_vet_animal_doctor,,1,1,1,1
+access_vet_animal_visit,vet.animal.visit,model_vet_animal_visit,,1,1,1,1
+access_vet_service,vet.service,model_vet_service,,1,1,1,1
+access_animal_schedule,access.vet.animal.schedule,model_vet_animal_schedule,,1,1,1,1
+access_vet_dashboard,veterinary.dashboard,model_vet_dashboard,,1,0,0,0
+access_vet_animal_visit_line,vet.animal.visit.line,model_vet_animal_visit_line,,1,1,1,1
+access_vet_animal_history_wizard,Vet Animal History Wizard,model_vet_animal_history_wizard,,1,1,1,1
+access_vet_animal_history_line,Vet Animal History Line,model_vet_animal_history_line,,1,1,1,1
