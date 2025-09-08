@@ -16,112 +16,103 @@
     <template id="report_receipt">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="doc">
-                <div class="page" style="width: 80mm; padding: 5mm; font-family: monospace; font-size: 12px; line-height: 1.4;">
-
-                    <!-- Header -->
-                    <div style="text-align: center; border-bottom: 1px dashed #000; margin-bottom: 5px;">
-
-                        <!-- Company Logo (custom static image) -->
-                        <img src="/vet_new/static/src/img/logo.png" class="oe_avatar img-fluid rounded-circle" style="width:80px;height:80px;"/>
-                        <!-- Company Name -->
-                        <h2 style="margin: 0; font-size: 14px; text-transform: uppercase;">Healthy Tails</h2>
-
-                        <!-- Paw Divider -->
-                        <div style="margin: 3px 0; text-align:center;">
-                            <span style="margin:0 5px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 512 512">
-                                    <circle cx="155" cy="155" r="55"/>
-                                    <circle cx="357" cy="155" r="55"/>
-                                    <circle cx="125" cy="315" r="70"/>
-                                    <circle cx="387" cy="315" r="70"/>
-                                    <ellipse cx="256" cy="430" rx="110" ry="90"/>
-                                </svg>
-                            </span>
-                            <span style="margin:0 5px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 512 512">
-                                    <circle cx="155" cy="155" r="55"/>
-                                    <circle cx="357" cy="155" r="55"/>
-                                    <circle cx="125" cy="315" r="70"/>
-                                    <circle cx="387" cy="315" r="70"/>
-                                    <ellipse cx="256" cy="430" rx="110" ry="90"/>
-                                </svg>
-                            </span>
-                            <span style="margin:0 5px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 512 512">
-                                    <circle cx="155" cy="155" r="55"/>
-                                    <circle cx="357" cy="155" r="55"/>
-                                    <circle cx="125" cy="315" r="70"/>
-                                    <circle cx="387" cy="315" r="70"/>
-                                    <ellipse cx="256" cy="430" rx="110" ry="90"/>
-                                </svg>
-                            </span>
-                        </div>
-
-                        <h3 style="margin: 0; font-size: 12px;">Receipt</h3>
-                        <p style="margin: 0; font-size: 11px;">Invoice: <t t-esc="doc.name"/></p>
-                        <p style="margin: 0; font-size: 11px;">Date: <t t-esc="doc.invoice_date"/></p>
+                <div class="page" style="font-family: Arial, sans-serif; font-size: 13px; line-height: 1.6;">
+                    <div style="text-align:center; margin-bottom:20px;">
+                        <img src="/vet_new/static/src/img/logo.png" style="max-height:80px;"/><br/>
+                        <span style="font-size:18px; font-weight:bold;">Healthy Tails</span>
                     </div>
+                    <!-- Header Info -->
+                    <table style="width:100%; margin-bottom:15px;">
+                        <tr>
+                            <td style="width:30%;"><strong>Patient Name</strong></td>
+                            <td>: <t t-esc="doc.animal_display_name"/></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Patient Id</strong></td>
+                            <td>: <t t-esc="doc.id"/></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Pet Owner</strong></td>
+                            <td>: <t t-esc="doc.partner_id.name"/></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Phone</strong></td>
+                            <td>: <t t-esc="doc.partner_id.phone or ''"/></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Invoice</strong></td>
+                            <td>: <t t-esc="doc.name"/></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Date</strong></td>
+                            <td>: <t t-esc="doc.invoice_date"/></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Doctor</strong></td>
+                            <td>: <t t-esc="doc.invoice_user_id.name or ''"/></td>
+                        </tr>
+                    </table>
 
-                    <!-- Customer Info -->
-                    <p style="margin: 2px 0; font-size: 11px;">
-                        <strong>Customer:</strong> <t t-esc="doc.partner_id.name"/>
-                        <strong>Animal Name:</strong> <t t-esc="doc.animal_display_name"/>
-                    </p>
-
-                    <!-- Items -->
-                    <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                    <!-- Line Items -->
+                    <table style="width:100%; border-collapse: collapse; margin-top:10px;">
                         <thead>
-                            <tr style="border-bottom: 1px dashed #000;">
-                                <th style="text-align: left;">Item</th>
-                                <th style="text-align: right;">Qty</th>
-                                <th style="text-align: right;">Price</th>
-                                <th style="text-align: right;">Subtotal</th>
+                            <tr style="border-bottom:1px solid #000;">
+                                <th style="text-align:left; width:5%;">#</th>
+                                <th style="text-align:left;">Description</th>
+                                <th style="text-align:right; width:20%;">Unit Price</th>
+                                <th style="text-align:right; width:10%;">Qty</th>
+                                <th style="text-align:right; width:20%;">Amount</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <t t-foreach="doc.invoice_line_ids" t-as="line">
+                            <t t-foreach="doc.invoice_line_ids" t-as="line" t-foreach-index="i">
                                 <tr>
+                                    <td><t t-esc="i"/></td>
                                     <td><t t-esc="line.name or line.product_id.display_name"/></td>
-                                    <td style="text-align: right;"><t t-esc="line.quantity"/></td>
-                                    <td style="text-align: right;"><t t-esc="line.price_unit"/></td>
-                                    <td style="text-align: right;"><t t-esc="line.price_subtotal"/></td>
+                                    <td style="text-align:right;">PKR <t t-esc="line.price_unit"/></td>
+                                    <td style="text-align:right;"><t t-esc="line.quantity"/></td>
+                                    <td style="text-align:right;">PKR <t t-esc="line.price_subtotal"/></td>
                                 </tr>
                             </t>
                         </tbody>
                     </table>
 
                     <!-- Totals -->
-                    <div style="border-top: 1px dashed #000; margin-top: 5px; padding-top: 5px;">
-                        <p style="text-align: right; margin: 0;">
-                            <strong>Total: </strong><t t-esc="doc.amount_total"/>
-                        </p>
-                    </div>
+                    <table style="width:100%; margin-top:10px;">
+                        <tr>
+                            <td style="text-align:right;">Sub Total :</td>
+                            <td style="text-align:right; width:20%;">PKR <t t-esc="doc.amount_untaxed"/></td>
+                        </tr>
+                        <tr>
+                            <td style="text-align:right;">Discount :</td>
+                            <td style="text-align:right;">PKR 0.00</td>
+                        </tr>
+                        <tr>
+                            <td style="text-align:right;">VAT : 0.00 %</td>
+                            <td style="text-align:right;">PKR 0.00</td>
+                        </tr>
+                        <tr>
+                            <td style="text-align:right;"><strong>Grand Total :</strong></td>
+                            <td style="text-align:right;"><strong>PKR <t t-esc="doc.amount_total"/></strong></td>
+                        </tr>
+                        <tr>
+                            <td style="text-align:right;">Deposit Type :</td>
+                            <td style="text-align:right;">Cash</td>
+                        </tr>
+                        <tr>
+                            <td style="text-align:right;">Amount Received :</td>
+                            <td style="text-align:right;">PKR 0</td>
+                        </tr>
+                        <tr>
+                            <td style="text-align:right;">Amount To Be Paid :</td>
+                            <td style="text-align:right;">PKR <t t-esc="doc.amount_total"/></td>
+                        </tr>
+                        <tr>
+                            <td style="text-align:right;">Old Dues :</td>
+                            <td style="text-align:right;">PKR 0</td>
+                        </tr>
+                    </table>
 
-                    <!-- Footer -->
-                    <div style="text-align: center; margin-top: 10px; border-top: 1px dashed #000; padding-top: 5px; font-size: 11px;">
-                        <p style="margin: 0;">Thank you for your business!</p>
-                        <div style="margin: 2px 0; text-align:center;">
-                            <span style="margin:0 5px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 512 512">
-                                    <circle cx="155" cy="155" r="55"/>
-                                    <circle cx="357" cy="155" r="55"/>
-                                    <circle cx="125" cy="315" r="70"/>
-                                    <circle cx="387" cy="315" r="70"/>
-                                    <ellipse cx="256" cy="430" rx="110" ry="90"/>
-                                </svg>
-                            </span>
-                            <span style="margin:0 5px;">Healthy Tails</span>
-                            <span style="margin:0 5px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 512 512">
-                                    <circle cx="155" cy="155" r="55"/>
-                                    <circle cx="357" cy="155" r="55"/>
-                                    <circle cx="125" cy="315" r="70"/>
-                                    <circle cx="387" cy="315" r="70"/>
-                                    <ellipse cx="256" cy="430" rx="110" ry="90"/>
-                                </svg>
-                            </span>
-                        </div>
-                    </div>
                 </div>
             </t>
         </t>
