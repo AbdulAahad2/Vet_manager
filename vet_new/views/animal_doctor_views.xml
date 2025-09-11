@@ -37,19 +37,6 @@
                             <field name="specialization" string="Specialization" placeholder="e.g. Veterinary Surgery"/>
                         </group>
                     </group>
-                    <notebook>
-                        <page string="Appointments">
-                            <field name="appointments" string="Appointments">
-                                <list editable="bottom">
-                                    <field name="animal_id" string="Animal" widget="many2one" context="{'form_view_ref': 'vet.view_animal_form'}"/>
-                                    <field name="appointment_date" string="Date" widget="date"/>
-                                </list>
-                            </field>
-                        </page>
-                        <page string="Notes">
-                            <field name="notes" string="Additional Notes" nolabel="1" placeholder="Enter any additional notes about the doctor..."/>
-                        </page>
-                    </notebook>
                 </sheet>
             </form>
         </field>

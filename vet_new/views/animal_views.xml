@@ -12,7 +12,7 @@
                 <field name="breed" string="Breed"/>
                 <field name="owner_id" string="Owner" widget="many2one"/>
                 <field name="contact_number" string="Owner Contact"/>
-                <field name="age" string="Age (Years)"/>
+                <field name="age" string="Age (Years + Months)"/>
             </list>
         </field>
     </record>
@@ -46,7 +46,7 @@
                         </group>
                         <group string="Health Information">
                             <field name="dob" string="Date of Birth" widget="date"/>
-                            <field name="age" string="Age (Years)" readonly="1"/>
+                            <field name="age" string="Age (Years + Months)" readonly="1"/>
                         </group>
                     </group>
                     <group string="Owner Information">

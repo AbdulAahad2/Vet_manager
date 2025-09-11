@@ -2,15 +2,14 @@
 <odoo>
     <!-- Main Vet Menu -->
     <menuitem id="menu_vet" name="Vet Management" sequence="1"/>
-    <menuitem id="menu_vet_dashboard" name="Dashboard" parent="menu_vet" action="action_vet_dashboard"/>
+    <menuitem id="menu_vet_dashboard" name="Dashboard" parent="menu_vet" action="action_vet_dashboard" groups="vet_new.group_vet_limited_user,vet_new.group_vet_manager,base.group_system"/>
 
     <!-- Submenus -->
-    <menuitem id="menu_vet_animals" name="Animals" parent="menu_vet" action="action_vet_animal"/>
-    <menuitem id="menu_vet_owners" name="Owners" parent="menu_vet" action="action_vet_animal_owner"/>
-    <menuitem id="menu_vet_doctors" name="Doctors" parent="menu_vet" action="action_vet_animal_doctor"/>
-    <menuitem id="menu_vet_schedule" name="Appointments" parent="menu_vet" action="action_vet_animal_schedule"/>
-    <menuitem id="menu_vet_visits" name="Visits" parent="menu_vet" action="action_vet_animal_visit"/>
-    <menuitem id="menu_vet_service" name="Services" parent="menu_vet" action="action_vet_service"/>
-    <menuitem id="menu_vet_invoice" name="Invoice" parent="menu_vet" action="action_invoice"/>
-    <menuitem id="menu_vet_history" name="History" parent="menu_vet" action="action_vet_animal_history_wizard"/>
+    <menuitem id="menu_vet_animals" name="Animals" parent="menu_vet" action="action_vet_animal" groups="vet_new.group_vet_limited_user,vet_new.group_vet_manager,base.group_system"/>
+    <menuitem id="menu_vet_owners" name="Owners" parent="menu_vet" action="action_vet_animal_owner" groups="vet_new.group_vet_limited_user,vet_new.group_vet_manager,base.group_system"/>
+    <menuitem id="menu_vet_doctors" name="Doctors" parent="menu_vet" action="action_vet_animal_doctor" groups="vet_new.group_vet_limited_user,vet_new.group_vet_manager,base.group_system"/>
+    <menuitem id="menu_vet_visits" name="Visits" parent="menu_vet" action="action_vet_animal_visit" groups="vet_new.group_vet_limited_user,vet_new.group_vet_manager,base.group_system"/>
+    <menuitem id="menu_vet_service" name="Services" parent="menu_vet" action="action_vet_service" groups="vet_new.group_vet_manager"/>
+    <menuitem id="menu_vet_invoice" name="Invoice" parent="menu_vet" action="invoice_action" groups="vet_new.group_vet_manager"/>
+    <menuitem id="menu_vet_history" name="History" parent="menu_vet" action="action_vet_animal_history_wizard" groups=",vet_new.group_vet_manager"/>
 </odoo>

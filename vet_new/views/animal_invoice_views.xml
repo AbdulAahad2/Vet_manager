@@ -7,18 +7,17 @@
         <field name="arch" type="xml">
             <xpath expr="//header" position="replace">
                 <header>
-                    <!-- Create Invoice Button (calls Python method) -->
+                    <!-- Create Invoice Button -->
                     <button name="action_create_invoice"
                             type="object"
                             string="Create Invoice"
                             class="btn-primary"/>
 
-                    <!-- View Invoices Button (calls Python method) -->
+                    <!-- View Invoices Button -->
                     <button name="action_view_invoices"
                             type="object"
                             string="Invoices"
-                            class="oe_stat_button"
-                    />
+                            class="oe_stat_button"/>
 
                     <!-- Statusbar -->
                     <field name="state" widget="statusbar"
@@ -28,7 +27,7 @@
         </field>
     </record>
 
-    <!-- Tree view for invoices (filtered by current visit) -->
+    <!-- Tree view for invoices -->
     <record id="view_vet_animal_visit_invoice_list" model="ir.ui.view">
         <field name="name">vet.animal.visit.invoice.list</field>
         <field name="model">account.move</field>
@@ -77,10 +76,9 @@
         </field>
     </record>
 
-    <record id="action_invoice" model="ir.actions.act_window">
-        <field name="name">Invoice</field>
-        <field name="res_model">account.move</field>
+    <record id="invoice_action" model="ir.actions.act_window">
+        <field name="name">Name</field>
+        <field name="res_model">vet.animal.visit</field>
         <field name="view_mode">list,form</field>
     </record>
-
 </odoo>

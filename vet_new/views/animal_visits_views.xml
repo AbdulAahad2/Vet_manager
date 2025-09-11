@@ -85,6 +85,7 @@
                                 <field name="contact_number" on_change="1"/>
                                 <field name="animal_ids" widget="many2many_tags" string="Owner's Animals" domain="[('owner_id', '=', owner_id)]"/>
                                 <field name="selected_animal_id" string="Select Animal" domain="[('id', 'in', animal_ids)]"/>
+                                <field name="owner_unpaid_balance" readonly="1"/>
                             </group>
 
                             <!-- General Info -->
@@ -143,7 +144,7 @@
                         <page string="Tests">
                             <field name="test_line_ids">
                                 <list editable="bottom">
-                                    <field name="service_id" domain="[('service_type','=','test')]"/>
+                                    <field name="service_id" string="Test" domain="[('service_type','=','test')]"/>
                                     <field name="quantity"/>
                                     <field name="price_unit"/>
                                     <field name="subtotal" readonly="1"/>
@@ -153,7 +154,7 @@
                         <page string="Medicines">
                             <field name="medicine_line_ids">
                                 <list editable="bottom">
-                                    <field name="service_id" domain="[('service_type','=','vaccine')]"/>
+                                    <field name="service_id"  string="Vaccine" domain="[('service_type','=','vaccine')]"/>
                                     <field name="quantity"/>
                                     <field name="price_unit"/>
                                     <field name="subtotal" readonly="1"/>
