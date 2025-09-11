@@ -1,5 +1,7 @@
 from odoo import fields, models, api
+from odoo.exceptions import ValidationError
 import logging
+from dateutil.relativedelta import relativedelta
 
 _logger = logging.getLogger(__name__)
 
@@ -24,7 +26,7 @@ class VetAnimal(models.Model):
     )
     name = fields.Char(string="Name", required=True, tracking=True)
     dob = fields.Date(string="Date of Birth", tracking=True)
-    age = fields.Integer(string="Age", compute="_compute_age", store=True)
+    age = fields.Char(string="Age", compute="_compute_age", store=True)
     gender = fields.Selection([('male', 'Male'), ('female', 'Female')], string="Gender", tracking=True)
     species = fields.Selection([('dog', 'Dog'), ('cat', 'Cat'), ('other', 'Other')], string="Species", tracking=True)
     breed = fields.Char(string="Breed", tracking=True)
@@ -42,13 +44,25 @@ class VetAnimal(models.Model):
         for record in self:
             if record.dob:
                 today = fields.Date.today()
-                record.age = today.year - record.dob.year - ((today.month, today.day) < (record.dob.month, record.dob.day))
+                delta = relativedelta(today, record.dob)
+                years = delta.years
+                months = delta.months
+
+                if years > 0:
+                    if months > 0:
+                        record.age = f"{years} year{'s' if years > 1 else ''} {months} month{'s' if months > 1 else ''}"
+                    else:
+                        record.age= f"{years} year{'s' if years > 1 else ''}"
+                else:
+                    record.age = f"{months} month{'s' if months != 1 else ''}"
             else:
-                record.age = 0
+                record.age = "0"
 
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
+            if not vals.get('owner_id'):
+                raise ValidationError("Add an owner.")
             if not vals.get('microchip_no'):
                 vals['microchip_no'] = self.env['ir.sequence'].next_by_code('vet.animal.microchip') or 'HT000000'
         return super(VetAnimal, self).create(vals_list)

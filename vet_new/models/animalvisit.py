@@ -82,6 +82,19 @@ class VetAnimalVisit(models.Model):
                              default='draft')
     delivered = fields.Boolean(default=False, string="Vaccines Delivered")
 
+    owner_unpaid_balance = fields.Float( string="Unpaid Balance", compute="_compute_owner_unpaid_balance", )
+
+    @api.depends("owner_id")
+    def _compute_owner_unpaid_balance(self):
+        for visit in self:
+            if visit.owner_id and visit.owner_id.partner_id:
+                partner = visit.owner_id.partner_id
+                # Receivable balance (what the partner owes to clinic)
+                balance = partner.credit
+                visit.owner_unpaid_balance = balance if balance > 0 else 0
+            else:
+                visit.owner_unpaid_balance = 0
+
     @api.depends('animal_id', 'animal_id.image_1920')
     def _compute_debug_animal_pic(self):
         for rec in self:
@@ -388,7 +401,6 @@ class VetAnimalVisit(models.Model):
         # Mark visit as done and deliver vaccines
         self.state = 'done'
         self.action_deliver_vaccines()
-
         # Open standard Odoo invoice print preview
         return self.env.ref('vet_new.action_report_receipt').report_action(self.invoice_ids[0])
 
@@ -455,13 +467,30 @@ class VetAnimalVisit(models.Model):
                 picking.unlink()
 
     def action_view_invoices(self):
-        """Open a smart button to see invoices for this visit"""
+        """Show only unpaid/partially paid invoices for this visit"""
+        self.ensure_one()
+        unpaid_invoices = self.invoice_ids.filtered(lambda inv: inv.payment_state != 'paid')
+        if not unpaid_invoices:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _("No Unpaid Invoices"),
+                    'message': _("All invoices for this visit are fully paid."),
+                    'sticky': False,
+                }
+            }
+
         return {
             'name': _("Invoices"),
             'type': 'ir.actions.act_window',
             'res_model': 'account.move',
-            'view_mode': 'list,form',
-            'domain': [('id', 'in', self.invoice_ids.ids)],
+            'view_mode': 'tree,form',
+            'views': [
+                (self.env.ref('vet_new.view_vet_animal_visit_invoice_list').id, 'tree'),
+                (self.env.ref('vet_new.view_vet_animal_visit_invoice_form').id, 'form')
+            ],
+            'domain': [('id', 'in', unpaid_invoices.ids)],
             'context': {'default_visit_id': self.id},
         }
     @api.onchange('owner_id')
@@ -560,3 +589,102 @@ class VetAnimal(models.Model):
         except Exception as exc:
             _logger.exception("vet.animal.name_search failed: %s", exc)
             return []
+
+    def action_view_invoices(self):
+        self.ensure_one()
+        return {
+            'name': 'Invoices',
+            'type': 'ir.actions.act_window',
+            'res_model': 'account.move',
+            'view_mode': 'list,form',
+            'views': [(self.env.ref('vet_new.view_vet_animal_visit_invoice_list').id, 'tree'),
+                      (self.env.ref('vet_new.view_vet_animal_visit_invoice_form').id, 'form')],
+            'domain': [('vet_animal_visit_id', '=', self.id),  # link invoices to this visit
+                       ('payment_state', '!=', 'paid')],  # exclude paid invoices
+            'context': {'create': False},
+        }
+
+# ------------------------
+# Payment Wizard
+# ------------------------
+
+from odoo import api, fields, models, _
+from odoo.exceptions import UserError
+
+
+class VetAnimalVisitPaymentWizard(models.TransientModel):
+    _name = "vet.animal.visit.payment.wizard"
+    _description = "Animal Visit Payment Wizard"
+
+    visit_id = fields.Many2one(
+        "vet.animal.visit",
+        string="Visit",
+        required=True,
+    )
+    payment_method = fields.Selection(
+        [('cash', 'Cash'), ('bank', 'Bank')],
+        string="Payment Method",
+        required=True,
+    )
+    amount = fields.Float(
+        string="Amount",
+        required=True,
+    )
+
+    def action_confirm_payment(self):
+        self.ensure_one()
+        visit = self.visit_id
+
+        if not visit.invoice_ids:
+            raise UserError(_("No invoice found for this visit."))
+
+        invoice = visit.invoice_ids[0]
+        residual = invoice.amount_residual
+
+        if self.amount <= 0:
+            raise UserError(_("Payment amount must be greater than zero."))
+
+        # Pick journal based on selection
+        journal_type = 'cash' if self.payment_method == 'cash' else 'bank'
+        journal = self.env['account.journal'].search([('type', '=', journal_type)], limit=1)
+        if not journal:
+            raise UserError(_("No %s journal found. Please configure one.") % self.payment_method.title())
+
+        # Create payment
+        payment = self.env['account.payment'].create({
+            'payment_type': 'inbound',
+            'partner_type': 'customer',
+            'partner_id': invoice.partner_id.id,
+            'amount': self.amount,
+            'payment_method_id': self.env.ref('account.account_payment_method_manual_in').id,
+            'journal_id': journal.id,
+            'date': fields.Date.context_today(self),
+        })
+
+        # ✅ Post payment without triggering redirect
+        payment._post()
+
+        # ✅ Reconcile payment directly with the invoice
+        (payment.line_ids + invoice.line_ids).filtered(
+            lambda l: l.account_internal_type in ('receivable', 'payable')
+        ).reconcile()
+
+        # Update unpaid balance if partial
+        if self.amount < residual:
+            visit.owner_unpaid_balance += (residual - self.amount)
+
+        # ✅ Mark visit as completed
+        visit.write({'state': 'done'})
+
+        # ✅ Close wizard with success message (no redirect)
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _("Success"),
+                'message': _("Payment of %.2f has been registered and Visit marked as Done.") % self.amount,
+                'sticky': False,
+            }
+        }
+
+

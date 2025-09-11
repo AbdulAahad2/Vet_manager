@@ -1,9 +1,7 @@
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 
-# -------------------------
-# Vet Service Model
-# -------------------------
+
 class VetService(models.Model):
     _name = "vet.service"
     _description = "Vet Service / Test / Vaccine"
@@ -27,10 +25,20 @@ class VetService(models.Model):
     @api.model
     def create(self, vals):
         if not vals.get('product_id'):
+            service_type = vals.get('service_type', 'service')
+            if service_type == 'service':
+                prod_type = 'service'
+            elif service_type == 'vaccine':
+                prod_type = 'product'
+            elif service_type == 'test':
+                prod_type = 'consu'
+            else:
+                prod_type = 'service'
+
             product_vals = {
                 'name': vals.get('name'),
                 'list_price': vals.get('price', 0),
-                'type': 'consu',
+                'type': prod_type,
             }
             product = self.env['product.product'].create(product_vals)
             vals['product_id'] = product.id
@@ -45,6 +53,13 @@ class VetService(models.Model):
                     service.product_id.list_price = service.price
                 if 'name' in vals:
                     service.product_id.name = service.name
+                if 'service_type' in vals:
+                    if service.service_type == 'service':
+                        service.product_id.type = 'service'
+                    elif service.service_type == 'vaccine':
+                        service.product_id.type = 'product'
+                    elif service.service_type == 'test':
+                        service.product_id.type = 'consu'
         return res
 
     @api.onchange('product_id')
@@ -54,41 +69,27 @@ class VetService(models.Model):
             if not self.name:
                 self.name = self.product_id.name
 
-    def action_create_delivery(self):
+    def action_add_product(self):
+        """Ensure product exists, do not open product screen"""
         self.ensure_one()
         if not self.product_id:
-            raise UserError("Please link a product to this service before creating a delivery.")
+            # Force product creation if missing
+            service_type = self.service_type or 'service'
+            if service_type == 'service':
+                prod_type = 'service'
+            elif service_type == 'vaccine':
+                prod_type = 'product'
+            elif service_type == 'test':
+                prod_type = 'consu'
+            else:
+                prod_type = 'service'
 
-        StockPicking = self.env['stock.picking']
-        StockMove = self.env['stock.move']
+            product_vals = {
+                'name': self.name,
+                'list_price': self.price,
+                'type': prod_type,
+            }
+            product = self.env['product.product'].create(product_vals)
+            self.product_id = product.id
+        return True
 
-        picking_type = self.env.ref('stock.picking_type_out')  # standard delivery
-        partner = self.env.user.partner_id
-
-        picking = StockPicking.create({
-            'partner_id': partner.id,
-            'picking_type_id': picking_type.id,
-            'location_id': picking_type.default_location_src_id.id,
-            'location_dest_id': partner.property_stock_customer.id,
-            'origin': f"Vet Service: {self.name}",
-        })
-
-        StockMove.create({
-            'name': self.name,
-            'product_id': self.product_id.id,
-            'product_uom_qty': 1,
-            'product_uom': self.product_id.uom_id.id,
-            'picking_id': picking.id,
-            'location_id': picking.location_id.id,
-            'location_dest_id': picking.location_dest_id.id,
-        })
-
-        picking.action_confirm()
-        picking.action_assign()
-
-        return {
-            "type": "ir.actions.act_window",
-            "res_model": "stock.picking",
-            "view_mode": "form",
-            "res_id": picking.id,
-        }

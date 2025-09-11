@@ -32,25 +32,58 @@ class VetAnimalOwner(models.Model):
         ('unique_contact_number', 'unique(contact_number)', 'Contact number must be unique!')
     ]
 
+    @api.constrains('partner_id')
+    def _check_contact_number(self):
+        for record in self:
+            phone = record.partner_id.phone
+            if not phone:
+                raise ValidationError("Contact number must be set")
+            if not re.fullmatch(r'\d{11}', phone):
+                raise ValidationError("Phone number must be exactly 11 digits.")
+
     @api.constrains('contact_number')
     def _check_contact_number(self):
         for record in self:
+            if not record.contact_number:
+                raise ValidationError("Contact number must be set")
             if record.contact_number and not re.fullmatch(r'\d{11}', record.contact_number):
                 raise ValidationError("Phone number must be exactly 11 digits.")
 
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
+            phone = None
+
+            # Case 1: Provided contact_number directly (for auto-partner creation)
+            if vals.get("contact_number"):
+                phone = vals["contact_number"]
+
+            # Case 2: Partner already exists → check partner’s phone
+            elif vals.get("partner_id"):
+                partner = self.env["res.partner"].browse(vals["partner_id"])
+                phone = partner.phone
+
+            # 🚨 Validate phone
+            if not phone:
+                raise ValidationError("Contact number must be set")
+
+            if not isinstance(phone, str):  # prevent NoneType errors
+                raise ValidationError("Invalid contact number format")
+
+            if not re.fullmatch(r'\d{11}', phone):
+                raise ValidationError("Phone number must be exactly 11 digits.")
+
+            # Auto-create partner if missing
             if not vals.get("partner_id"):
                 partner = self.env["res.partner"].create({
                     "name": vals.get("name", "Unknown Owner"),
-                    "phone": vals.get("contact_number"),
+                    "phone": phone,
                     "email": vals.get("email"),
                     "street": vals.get("address"),
                 })
                 vals["partner_id"] = partner.id
-        return super().create(vals_list)
 
+        return super().create(vals_list)
 
     def _search_contact_number(self, operator, value):
         return [('partner_id.phone', operator, value)]
