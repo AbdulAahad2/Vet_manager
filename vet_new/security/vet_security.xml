@@ -1,0 +1,16 @@
+<odoo>
+    <data noupdate="0">
+        <record id="group_vet_manager" model="res.groups">
+            <field name="name">Vet Manager</field>
+            <field name="category_id" ref="base.module_category_hidden"/>
+        </record>
+        <!-- Limited User Group -->
+        <record id="group_vet_limited_user" model="res.groups">
+            <field name="name">Vet Limited User</field>
+            <field name="category_id" ref="base.module_category_hidden"/>
+            <!-- category_id = where this group shows in Access Rights -->
+            <field name="implied_ids" eval="[(4, ref('vet_new.group_vet_limited_user'))]"/>
+        </record>
+
+    </data>
+</odoo>
