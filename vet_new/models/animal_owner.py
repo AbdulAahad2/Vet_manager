@@ -19,61 +19,75 @@ class VetAnimalOwner(models.Model):
     notes = fields.Text("Additional Notes")
     active = fields.Boolean("Active", default=True)
 
-    # Convenience mirror fields (auto-sync from partner)
-    name = fields.Char(related="partner_id.name", store=True, readonly=False, tracking=True,index =True,search= True )
-    contact_number = fields.Char(related="partner_id.phone", store=True, readonly=False, tracking=True, index=True, search="_search_contact_number")
+    # Mirror fields (sync with partner)
+    name = fields.Char(
+        related="partner_id.name",
+        store=True,
+        readonly=False,
+        tracking=True,
+        index=True
+    )
+    contact_number = fields.Char(
+        related="partner_id.phone",
+        store=True,
+        readonly=False,
+        tracking=True,
+        index=True,
+        search=lambda self, operator, value: [('partner_id.phone', operator, value)]
+    )
     email = fields.Char(related="partner_id.email", store=True, readonly=False, tracking=True)
     address = fields.Char(related="partner_id.street", store=True, readonly=False, tracking=True)
 
     # Relation to animals
     animal_ids = fields.One2many('vet.animal', 'owner_id', string="Animals")
 
-    _sql_constraints = [
-        ('unique_contact_number', 'unique(contact_number)', 'Contact number must be unique!')
-    ]
-
-    @api.constrains('partner_id')
-    def _check_contact_number(self):
+    # -------------------------
+    # Validation Constraints
+    # -------------------------
+    @api.constrains('contact_number')
+    def _check_owner_contact_number(self):
         for record in self:
-            phone = record.partner_id.phone
+            phone = record.contact_number
             if not phone:
-                raise ValidationError("Contact number must be set")
+                raise ValidationError("Contact number must be set.")
+            phone = str(phone)
             if not re.fullmatch(r'\d{11}', phone):
                 raise ValidationError("Phone number must be exactly 11 digits.")
 
-    @api.constrains('contact_number')
-    def _check_contact_number(self):
-        for record in self:
-            if not record.contact_number:
-                raise ValidationError("Contact number must be set")
-            if record.contact_number and not re.fullmatch(r'\d{11}', record.contact_number):
-                raise ValidationError("Phone number must be exactly 11 digits.")
+            # Python uniqueness check
+            dup = self.search([
+                ('contact_number', '=', phone),
+                ('id', '!=', record.id)
+            ], limit=1)
+            if dup:
+                raise ValidationError("Contact number must be unique!")
 
+    # -------------------------
+    # Create override
+    # -------------------------
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
             phone = None
 
-            # Case 1: Provided contact_number directly (for auto-partner creation)
+            # If contact_number is given → use it
             if vals.get("contact_number"):
                 phone = vals["contact_number"]
 
-            # Case 2: Partner already exists → check partner’s phone
+            # If partner is provided → check its phone
             elif vals.get("partner_id"):
                 partner = self.env["res.partner"].browse(vals["partner_id"])
                 phone = partner.phone
 
-            # 🚨 Validate phone
+            # Validate phone
             if not phone:
-                raise ValidationError("Contact number must be set")
+                raise ValidationError("Contact number must be set.")
 
-            if not isinstance(phone, str):  # prevent NoneType errors
-                raise ValidationError("Invalid contact number format")
-
+            phone = str(phone)
             if not re.fullmatch(r'\d{11}', phone):
                 raise ValidationError("Phone number must be exactly 11 digits.")
 
-            # Auto-create partner if missing
+            # If no partner → create one automatically
             if not vals.get("partner_id"):
                 partner = self.env["res.partner"].create({
                     "name": vals.get("name", "Unknown Owner"),
@@ -85,5 +99,54 @@ class VetAnimalOwner(models.Model):
 
         return super().create(vals_list)
 
-    def _search_contact_number(self, operator, value):
-        return [('partner_id.phone', operator, value)]
+
+# ------------------------------------------------------------
+# Extend res.partner so Contacts always sync to Vet Management
+# ------------------------------------------------------------
+from odoo import models, api
+
+class ResPartnerInherit(models.Model):
+    _inherit = "res.partner"
+
+    animal_ids = fields.One2many(
+        "vet.animal",
+        "partner_id",  # <-- now correct, points to res.partner
+        string="Animals"
+    )
+    owner_id = fields.One2many("vet.animal.owner", "partner_id", string="Vet Owner")
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        partners = super().create(vals_list)
+        for partner in partners:
+            # Skip if partner is linked to a user OR created from res.users
+            if self.env.context.get("create_user") or partner.user_ids:
+                continue
+            # Only auto-create owner if missing
+            if not self.env['vet.animal.owner'].search([('partner_id', '=', partner.id)], limit=1):
+                # Only create if partner has a phone (avoid blocking users/empty contacts)
+                if partner.phone:
+                    self.env['vet.animal.owner'].create({'partner_id': partner.id})
+        return partners
+
+    def write(self, vals):
+        res = super().write(vals)
+        for partner in self:
+            if partner.user_ids:
+                continue
+            exists = self.env['vet.animal.owner'].search([('partner_id', '=', partner.id)], limit=1)
+            if not exists and partner.phone:
+                self.env['vet.animal.owner'].create({'partner_id': partner.id})
+        return res
+
+
+from odoo import models, fields
+
+
+class InheritConfiguration(models.TransientModel):
+    _inherit = "res.config.settings"
+
+    unique_mobile = fields.Boolean(string="Unique Mobile Number",
+                    config_parameter="sttl_unique_contact_fields.unique_mobile")
+    unique_email = fields.Boolean(string="Unique Email Id",
+                    config_parameter="sttl_unique_contact_fields.unique_email")

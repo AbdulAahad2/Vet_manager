@@ -61,6 +61,38 @@
         </field>
     </record>
 
+    <!-- ===================== PAYMENT WIZARD ACTION ===================== -->
+    <record id="view_vet_animal_visit_payment_wizard_form" model="ir.ui.view">
+        <field name="name">vet.animal.visit.payment.wizard.form</field>
+        <field name="model">vet.animal.visit.payment.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Register Payment">
+                <group>
+                    <field name="visit_id" invisible="1"/>
+                    <field name="payment_method"/>
+                    <field name="amount"/>
+                </group>
+                <footer>
+                    <button string="Confirm Payment"
+                            type="object"
+                            name="action_confirm_payment"
+                            class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_vet_animal_visit_payment_wizard" model="ir.actions.act_window">
+        <field name="name">Register Payment</field>
+        <field name="res_model">vet.animal.visit.payment.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_vet_animal_visit_payment_wizard_form"/>
+        <field name="target">new</field>
+        <field name="context">{'default_visit_id': active_id}</field>
+    </record>
+
+
    <!-- ===================== FORM VIEW ===================== -->
     <record id="view_vet_animal_visit_form" model="ir.ui.view">
         <field name="name">vet.animal.visit.form</field>
@@ -70,9 +102,15 @@
                 <sheet>
                     <header>
                         <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,done,cancel"/>
-                        <button name="action_pay_invoice" type="object" string="Pay Invoice" invisible="not has_unpaid_invoice"/>
+                        <button name="action_pay_invoice" type="object" string="Pay Invoice" invisible="has_unpaid_invoice"/>
                     </header>
-                    <button name="action_pay_invoice" type="object" string="Pay Invoice" invisible="not has_unpaid_invoice"/>
+                    <button name="%(action_vet_animal_visit_payment_wizard)d"
+                        string="Complete Pay"
+                        type="action"
+                        class="btn-primary"
+                        invisible="not has_unpaid_invoice"/>
+
+                    <button name="action_pay_invoice" type="object" string="Pay Invoice" invisible="has_unpaid_invoice"/>
 
                     <div class="oe_title mb-2">
                         <h2><field name="name"/></h2>

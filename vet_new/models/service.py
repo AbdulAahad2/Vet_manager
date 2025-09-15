@@ -1,5 +1,4 @@
 from odoo import models, fields, api
-from odoo.exceptions import UserError
 
 
 class VetService(models.Model):
@@ -21,24 +20,28 @@ class VetService(models.Model):
     )
     description = fields.Text("Description")
 
+    # Helper: map vet.service.service_type → product.type
+    def _map_service_type_to_product_config(self, service_type):
+        """Return product type and tracking based on service_type"""
+        mapping = {
+            'service': {'type': 'service', 'tracking': 'none'},  # Service
+            'vaccine': {'type': 'consu', 'tracking': 'lot'},  # Vaccine → Consumable + Tracking by Lots
+            'test': {'type': 'consu', 'tracking': 'none'},  # Test → Consumable (no tracking)
+        }
+        return mapping.get(service_type, {'type': 'service', 'tracking': 'none'})
+
     # Auto-create product if missing
     @api.model
     def create(self, vals):
         if not vals.get('product_id'):
-            service_type = vals.get('service_type', 'service')
-            if service_type == 'service':
-                prod_type = 'service'
-            elif service_type == 'vaccine':
-                prod_type = 'product'
-            elif service_type == 'test':
-                prod_type = 'consu'
-            else:
-                prod_type = 'service'
-
+            config = self._map_service_type_to_product_config(
+                vals.get('service_type', 'service')
+            )
             product_vals = {
                 'name': vals.get('name'),
                 'list_price': vals.get('price', 0),
-                'type': prod_type,
+                'type': config['type'],
+                'tracking': config['tracking'],
             }
             product = self.env['product.product'].create(product_vals)
             vals['product_id'] = product.id
@@ -54,14 +57,10 @@ class VetService(models.Model):
                 if 'name' in vals:
                     service.product_id.name = service.name
                 if 'service_type' in vals:
-                    if service.service_type == 'service':
-                        service.product_id.type = 'service'
-                    elif service.service_type == 'vaccine':
-                        service.product_id.type = 'product'
-                    elif service.service_type == 'test':
-                        service.product_id.type = 'consu'
+                    config = self._map_service_type_to_product_config(service.service_type)
+                    service.product_id.type = config['type']
+                    service.product_id.tracking = config['tracking']
         return res
-
     @api.onchange('product_id')
     def _onchange_product_id(self):
         if self.product_id:
@@ -70,26 +69,21 @@ class VetService(models.Model):
                 self.name = self.product_id.name
 
     def action_add_product(self):
-        """Ensure product exists, do not open product screen"""
+        """Open product creation form with defaults instead of auto-creating"""
         self.ensure_one()
-        if not self.product_id:
-            # Force product creation if missing
-            service_type = self.service_type or 'service'
-            if service_type == 'service':
-                prod_type = 'service'
-            elif service_type == 'vaccine':
-                prod_type = 'product'
-            elif service_type == 'test':
-                prod_type = 'consu'
-            else:
-                prod_type = 'service'
+        config = self._map_service_type_to_product_config(self.service_type or 'service')
 
-            product_vals = {
-                'name': self.name,
-                'list_price': self.price,
-                'type': prod_type,
+        return {
+            'name': 'Add Product',
+            'type': 'ir.actions.act_window',
+            'res_model': 'product.product',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_name': self.name,
+                'default_list_price': self.price,
+                'default_type': config['type'],
+                'default_tracking': config['tracking'],
             }
-            product = self.env['product.product'].create(product_vals)
-            self.product_id = product.id
-        return True
+        }
 

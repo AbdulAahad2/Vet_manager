@@ -21,8 +21,9 @@ Manage the animals that visit our veterinarian
 
     # always loaded
     'data': [
-
+        'security/vet_security.xml',
         'security/ir.model.access.csv',  # Security rules
+        'security/vet_security.xml',
         'data/sequence_data.xml',
         'data/visit_sequence_data.xml',
         'data/treatment_product.xml',
@@ -31,6 +32,7 @@ Manage the animals that visit our veterinarian
         'views/animal_views.xml',
         'views/animal_doctor_views.xml',
         'views/animal_owner_views.xml',
+        'views/res_partner_views.xml',
         'views/animal_appointment_views.xml',
         'views/animal_visits_views.xml',
         'views/report.xml',

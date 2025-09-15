@@ -38,7 +38,13 @@ class VetAnimal(models.Model):
 
     active = fields.Boolean(string="Active", default=True)
     notes = fields.Text(string="Additional Notes")
-
+    partner_id = fields.Many2one(
+        'res.partner',
+        string='Contact',
+        related='owner_id.partner_id',
+        store=True,
+        index=True
+    )
     @api.depends('dob')
     def _compute_age(self):
         for record in self:
@@ -66,6 +72,20 @@ class VetAnimal(models.Model):
             if not vals.get('microchip_no'):
                 vals['microchip_no'] = self.env['ir.sequence'].next_by_code('vet.animal.microchip') or 'HT000000'
         return super(VetAnimal, self).create(vals_list)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            # If partner_id is given but no owner_id, auto-assign
+            if vals.get("partner_id") and not vals.get("owner_id"):
+                owner = self.env["vet.animal.owner"].search(
+                    [("partner_id", "=", vals["partner_id"])],
+                    limit=1
+                )
+                if not owner:
+                    raise ValidationError("This contact is not linked to a vet owner.")
+                vals["owner_id"] = owner.id
+        return super().create(vals_list)
 
     def name_get(self):
         result = []
