@@ -108,25 +108,31 @@ from odoo import models, api
 class ResPartnerInherit(models.Model):
     _inherit = "res.partner"
 
+    owner_id = fields.One2many("vet.animal.owner", "partner_id", string="Vet Owner")
     animal_ids = fields.One2many(
         "vet.animal",
-        "partner_id",  # <-- now correct, points to res.partner
+        "partner_id",
         string="Animals"
     )
-    owner_id = fields.One2many("vet.animal.owner", "partner_id", string="Vet Owner")
 
+    def _compute_animal_ids(self):
+        for partner in self:
+            partner.animal_ids = self.env['vet.animal'].search([('owner_id.partner_id', '=', partner.id)])
     @api.model_create_multi
     def create(self, vals_list):
         partners = super().create(vals_list)
         for partner in partners:
-            # Skip if partner is linked to a user OR created from res.users
             if self.env.context.get("create_user") or partner.user_ids:
                 continue
-            # Only auto-create owner if missing
-            if not self.env['vet.animal.owner'].search([('partner_id', '=', partner.id)], limit=1):
-                # Only create if partner has a phone (avoid blocking users/empty contacts)
-                if partner.phone:
-                    self.env['vet.animal.owner'].create({'partner_id': partner.id})
+            # Always ensure owner exists
+            if not partner.owner_id:
+                self.env['vet.animal.owner'].create({
+                    "partner_id": partner.id,
+                    "name": partner.name or "Unknown Owner",
+                    "contact_number": partner.phone or "00000000000",  # fallback if blank
+                    "email": partner.email,
+                    "address": partner.street,
+                })
         return partners
 
     def write(self, vals):
@@ -134,19 +140,12 @@ class ResPartnerInherit(models.Model):
         for partner in self:
             if partner.user_ids:
                 continue
-            exists = self.env['vet.animal.owner'].search([('partner_id', '=', partner.id)], limit=1)
-            if not exists and partner.phone:
-                self.env['vet.animal.owner'].create({'partner_id': partner.id})
+            if not partner.owner_id:
+                self.env['vet.animal.owner'].create({
+                    "partner_id": partner.id,
+                    "name": partner.name or "Unknown Owner",
+                    "contact_number": partner.phone or "00000000000",
+                    "email": partner.email,
+                    "address": partner.street,
+                })
         return res
-
-
-from odoo import models, fields
-
-
-class InheritConfiguration(models.TransientModel):
-    _inherit = "res.config.settings"
-
-    unique_mobile = fields.Boolean(string="Unique Mobile Number",
-                    config_parameter="sttl_unique_contact_fields.unique_mobile")
-    unique_email = fields.Boolean(string="Unique Email Id",
-                    config_parameter="sttl_unique_contact_fields.unique_email")
