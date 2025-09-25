@@ -1,10 +1,8 @@
-# models/vet_models.py
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
 import logging
 
 _logger = logging.getLogger(__name__)
-
 
 class VetAnimalVisit(models.Model):
     _name = "vet.animal.visit"
@@ -65,7 +63,6 @@ class VetAnimalVisit(models.Model):
     # ------------------------
     # Invoicing & Payment
     # ------------------------
-    # One2many does not accept 'ondelete' - removed invalid param
     invoice_ids = fields.One2many('account.move', 'visit_id', string="Invoices")
     payment_state = fields.Selection(
         [('not_paid', 'Not Paid'), ('partial', 'Partially Paid'), ('paid', 'Paid')],
@@ -74,21 +71,30 @@ class VetAnimalVisit(models.Model):
     has_unpaid_invoice = fields.Boolean(string="Has Unpaid Invoice", compute="_compute_has_unpaid_invoice", store=True)
     state = fields.Selection([('draft', 'Draft'), ('confirmed', 'Confirmed'), ('done', 'Done'), ('cancel', 'Cancelled')], default='draft')
     delivered = fields.Boolean(default=False, string="Vaccines Delivered")
+    amount_received = fields.Float(compute='_compute_amount_received')
+    latest_payment_amount = fields.Float(
+        string="Latest Payment Amount",
+        default=0.0,
+        help="Amount of the most recent payment made for this visit."
+    )
 
-    # owner_unpaid_balance is on the visit model, showing owner's (partner) unpaid total
     owner_unpaid_balance = fields.Float(
         string="Unpaid Balance",
         compute="_compute_owner_unpaid_balance",
         store=False,
-        digits=(16, 2),  # 2 decimals for money-like values
+        digits=(16, 2),
     )
 
     # ------------------------
     # COMPUTES
     # ------------------------
+    @api.depends('latest_payment_amount', 'invoice_ids', 'invoice_ids.state', 'invoice_ids.amount_residual')
+    def _compute_amount_received(self):
+        for visit in self:
+            # Use the latest payment amount if available
+            visit.amount_received = visit.latest_payment_amount or 0.0
     @api.depends('owner_id.partner_id')
     def _compute_has_unpaid_invoice(self):
-        """Check if the owner has unpaid invoices (open/partial)."""
         AccountMove = self.env['account.move']
         for visit in self:
             has_unpaid = False
@@ -101,10 +107,22 @@ class VetAnimalVisit(models.Model):
                 ])
                 has_unpaid = unpaid > 0
             visit.has_unpaid_invoice = has_unpaid
+
     @api.depends('payment_state')
     def _compute_is_fully_paid(self):
         for visit in self:
+            old_state = visit.state
             visit.is_fully_paid = visit.payment_state == 'paid'
+            if visit.state not in ['cancel']:
+                new_state = 'done' if visit.payment_state == 'paid' else 'confirmed'
+                if visit.state != new_state:
+                    visit.state = new_state
+                    _logger.info("Visit %s: State changed from %s to %s (payment_state=%s, is_fully_paid=%s)",
+                                 visit.name, old_state, new_state, visit.payment_state, visit.is_fully_paid)
+                else:
+                    _logger.info(
+                        "Visit %s: No state change needed, payment_state=%s, is_fully_paid=%s, current_state=%s",
+                        visit.name, visit.payment_state, visit.is_fully_paid, visit.state)
 
     @api.depends('animal_id', 'animal_id.image_1920')
     def _compute_debug_animal_pic(self):
@@ -166,24 +184,42 @@ class VetAnimalVisit(models.Model):
     @api.depends('invoice_ids.payment_state')
     def _compute_payment_state(self):
         for visit in self:
-            if not visit.invoice_ids:
+            states = visit.invoice_ids.mapped('payment_state')
+            if not states:
                 visit.payment_state = 'not_paid'
-            elif all(inv.payment_state == 'paid' for inv in visit.invoice_ids):
+            elif all(s == 'paid' for s in states):
                 visit.payment_state = 'paid'
-            elif any(inv.payment_state in ['partial', 'not_paid'] for inv in visit.invoice_ids):
+            elif any(s == 'partial' for s in states):
                 visit.payment_state = 'partial'
             else:
                 visit.payment_state = 'not_paid'
 
     @api.depends("owner_id")
-    @api.depends("owner_id")
     def _compute_owner_unpaid_balance(self):
         for visit in self:
             visit.owner_unpaid_balance = visit._get_owner_unpaid_balance()
 
+    def action_confirm(self):
+        for visit in self:
+            if visit.state == 'draft':
+                visit.state = 'confirmed'
+                _logger.info("Visit %s: Confirmed, state set to 'confirmed'", visit.name)
+                visit.message_post(body=_("Visit confirmed."))
+
     # ------------------------
     # Create / Write
     # ------------------------
+    def _update_state_from_payment(self):
+        for visit in self:
+            if visit.state == 'cancel':
+                continue
+            if visit.payment_state == 'paid':
+                visit.state = 'done'
+            elif visit.invoice_ids:
+                visit.state = 'confirmed'
+            else:
+                visit.state = 'draft'
+
     @api.model
     def create(self, vals):
         if vals.get("name", _("New")) == _("New"):
@@ -191,19 +227,37 @@ class VetAnimalVisit(models.Model):
         return super().create(vals)
 
     def write(self, vals):
-        return super().write(vals)
+        # Skip validation for payment operations and state changes
+        if self.env.context.get('skip_visit_validation') or self.env.context.get('from_payment_wizard'):
+            return super().write(vals)
 
+        for visit in self:
+            if visit.state in ['confirmed', 'done']:
+                # Allow state changes and payment-related updates
+                if 'state' in vals or any(field in vals for field in ['latest_payment_amount']):
+                    return super().write(vals)
+
+                # Optionally allow specific fields to be editable
+                allowed_fields = ['notes', 'latest_payment_amount']  # Adjust as needed
+                # Only check for restricted fields that are actually being modified
+                restricted_fields = [key for key in vals.keys() if key not in allowed_fields]
+                if restricted_fields:
+                    raise UserError(
+                        _("Cannot modify visit %s in %s state. Only %s can be updated. "
+                          "Fields attempted to modify: %s") % (
+                            visit.name, visit.state, ', '.join(allowed_fields) or 'no fields',
+                            ', '.join(restricted_fields)
+                        )
+                    )
+        return super().write(vals)
     # ------------------------
     # Auto-fill Owner / Animal
     # ------------------------
+
+    def print_visit_receipt(self):
+        return self.env.ref('vet_new.action_report_visit_receipt').report_action(self)
     @api.onchange('owner_id')
     def _onchange_owner_id(self):
-        """
-        When Owner is selected:
-        - set contact_number
-        - filter animal_id domain to owner’s animals
-        - if only one animal, auto-select it
-        """
         domain = {'animal_id': []}
         if self.owner_id:
             self.contact_number = self.owner_id.contact_number or ''
@@ -219,9 +273,6 @@ class VetAnimalVisit(models.Model):
 
     @api.onchange('contact_number')
     def _onchange_contact_number(self):
-        """
-        Auto-fill owner based on contact number and filter animals.
-        """
         self.owner_id = False
         self.animal_id = False
         if self.contact_number:
@@ -240,12 +291,6 @@ class VetAnimalVisit(models.Model):
 
     @api.onchange('animal_id')
     def _onchange_animal_id(self):
-        """
-        When animal is chosen:
-        - Auto-fill owner_id, contact_number
-        - Auto-populate animal_ids
-        - Sync selected_animal_id and animal_name
-        """
         if not self.animal_id:
             self.owner_id = False
             self.contact_number = ''
@@ -262,24 +307,65 @@ class VetAnimalVisit(models.Model):
     # ------------------------
     # Invoice / Payment helpers
     # ------------------------
+
+    def action_print_visit_receipt(self):
+        self.ensure_one()
+        if not self.exists():
+            raise UserError(_("This visit record no longer exists."))
+        _logger.info("Printing visit receipt - visit id=%s name=%s for user=%s", self.id, self.name, self.env.uid)
+        return self.env.ref("vet_new.action_report_visit_receipt").report_action(self)
+
+    @api.model
+    def print_visit_receipt(self, docids):
+        valid_visits = self.env['vet.animal.visit'].browse(docids).filtered(lambda r: r.exists())
+        if not valid_visits:
+            raise UserError(_("No valid visit records found to print."))
+        return self.env.ref('vet_new.action_report_visit_receipt').report_action(valid_visits)
+
+    def action_print_receipt(self):
+        self.ensure_one()
+        return self.env.ref("vet_new.report_visit_receipt").report_action(self)
+
+    def _sync_state_with_payment(self):
+        for visit in self:
+            if visit.state == "cancel":
+                continue
+            if visit.payment_state == "paid":
+                visit.state = "done"
+            elif visit.payment_state in ["partial", "not_paid"] and visit.invoice_ids:
+                visit.state = "confirmed"
+            else:
+                visit.state = "draft"
+
+    @api.constrains('payment_state', 'state')
+    def _constrain_payment_state(self):
+        for visit in self:
+            if visit.state not in ['draft', 'cancel']:
+                expected_state = 'done' if visit.payment_state == 'paid' else 'confirmed'
+                if visit.state != expected_state:
+                    visit.state = expected_state
+                    _logger.info("Visit %s: Constrained state to %s due to payment_state=%s",
+                                 visit.name, expected_state, visit.payment_state)
+
     def _get_owner_unpaid_balance(self, exclude_visits=None):
         self.ensure_one()
         if not self.owner_id or not self.owner_id.partner_id:
             return 0.0
-        partner = self.owner_id.partner_id
+
         domain = [
-            ("partner_id", "=", partner.id),
+            ("partner_id", "=", self.owner_id.partner_id.id),
             ("move_type", "=", "out_invoice"),
             ("payment_state", "in", ["not_paid", "partial"]),
         ]
         if exclude_visits:
             domain.append(("visit_id", "not in", exclude_visits))
-        unpaid = self.env['account.move'].search(domain)
-        return sum(unpaid.mapped("amount_residual"))
+
+        result = self.env["account.move"].read_group(
+            domain, ["amount_residual"], []
+        )
+        return result[0]["amount_residual"] if result else 0.0
 
     def _get_or_create_partner_from_owner(self, owner):
-        """Return the partner for an owner, creating a partner if missing."""
-        # ensure called on singleton for safety
         if owner.partner_id:
             return owner.partner_id
         partner = self.env['res.partner'].create({
@@ -297,15 +383,6 @@ class VetAnimalVisit(models.Model):
                 raise ValidationError(_("You cannot use both Discount (%) and Discount (Fixed) at the same time. Please use only one."))
 
     def action_create_invoice(self):
-        """Create a posted customer invoice for the visit.
-
-        - Ensures only one invoice per visit.
-        - Adds service/test/medicine/treatment_charge lines with accounts.
-        - If no lines exist, but owner has unpaid balance → add balance-only line.
-        - Applies discount (percent or fixed).
-        - Validates account_id on all lines.
-        - Posts the invoice and links it to the visit.
-        """
         for visit in self:
             if visit.invoice_ids:
                 raise UserError(_("An invoice already exists for this visit."))
@@ -317,28 +394,25 @@ class VetAnimalVisit(models.Model):
             invoice_lines = []
             first_account_id = False
 
-            # --- Default Income Account ---
             Account = self.env['account.account']
-            if 'account_type' in Account._fields:  # Odoo 14+
+            if 'account_type' in Account._fields:
                 income_account = Account.search([('account_type', '=', 'income')], limit=1)
-            else:  # Older fallback
+            else:
                 income_account = Account.search([('user_type_id.type', '=', 'income')], limit=1)
             if income_account:
                 first_account_id = income_account.id
 
-            # --- Helper: get account from product ---
             def _get_income_account_for_product(product):
                 if not product:
                     return None
                 tmpl = product.product_tmpl_id
                 return (
-                        product.property_account_income_id.id
-                        or (tmpl.property_account_income_id.id if tmpl and tmpl.property_account_income_id else False)
-                        or (
-                            tmpl.categ_id.property_account_income_categ_id.id if tmpl and tmpl.categ_id and tmpl.categ_id.property_account_income_categ_id else False)
+                    product.property_account_income_id.id
+                    or (tmpl.property_account_income_id.id if tmpl and tmpl.property_account_income_id else False)
+                    or (
+                        tmpl.categ_id.property_account_income_categ_id.id if tmpl and tmpl.categ_id and tmpl.categ_id.property_account_income_categ_id else False)
                 )
 
-            # --- Service Lines ---
             for service in visit.service_line_ids:
                 prod, qty, price = service.product_id, service.quantity or 1.0, service.price_unit or 0.0
                 account_id = _get_income_account_for_product(prod) or first_account_id
@@ -357,7 +431,6 @@ class VetAnimalVisit(models.Model):
                     'tax_ids': [(6, 0, prod.taxes_id.ids if prod else [])],
                 }))
 
-            # --- Test Lines ---
             for test in visit.test_line_ids:
                 prod, qty, price = test.product_id, test.quantity or 1.0, test.price_unit or 0.0
                 account_id = _get_income_account_for_product(prod) or first_account_id
@@ -375,7 +448,6 @@ class VetAnimalVisit(models.Model):
                     'tax_ids': [(6, 0, prod.taxes_id.ids if prod else [])],
                 }))
 
-            # --- Medicine Lines ---
             for med in visit.medicine_line_ids:
                 prod, qty, price = med.product_id, med.quantity or 1.0, med.price_unit or 0.0
                 account_id = _get_income_account_for_product(prod) or first_account_id
@@ -393,7 +465,6 @@ class VetAnimalVisit(models.Model):
                     'tax_ids': [(6, 0, prod.taxes_id.ids if prod else [])],
                 }))
 
-            # --- Treatment Charge ---
             if visit.treatment_charge and float(visit.treatment_charge) != 0.0:
                 if not first_account_id:
                     raise UserError(_("Cannot determine an income account for Treatment Charge."))
@@ -406,7 +477,6 @@ class VetAnimalVisit(models.Model):
                     'tax_ids': [(6, 0, [])],
                 }))
 
-            # --- Apply Discounts ---
             if visit.discount_percent > 0:
                 for line in invoice_lines:
                     line[2]['discount'] = visit.discount_percent
@@ -422,23 +492,9 @@ class VetAnimalVisit(models.Model):
                     'tax_ids': [(6, 0, [])],
                 }))
 
-            # --- Balance-only Invoice ---
             if not invoice_lines:
-                unpaid_balance = visit._get_owner_unpaid_balance(exclude_visits=visit.ids)
-                if unpaid_balance <= 0:
-                    raise UserError(_("No invoiceable lines found for this visit and no unpaid balance for the owner."))
-                if not first_account_id:
-                    raise UserError(_("Please configure an Income Account for balance invoices."))
-                invoice_lines.append((0, 0, {
-                    'product_id': False,
-                    'name': _("Unpaid Balance for Previous Visits"),
-                    'quantity': 1.0,
-                    'price_unit': unpaid_balance,
-                    'account_id': first_account_id,
-                    'tax_ids': [(6, 0, [])],
-                }))
+                raise UserError(_("No invoiceable lines found for this visit. To pay previous balances, use the Complete Payment action."))
 
-            # --- Create Invoice ---
             invoice_vals = {
                 'partner_id': partner.id,
                 'move_type': 'out_invoice',
@@ -449,7 +505,6 @@ class VetAnimalVisit(models.Model):
             }
             invoice = self.env['account.move'].create(invoice_vals)
 
-            # --- Ensure account_id ---
             missing_account_lines = invoice.invoice_line_ids.filtered(lambda l: not l.account_id)
             if missing_account_lines:
                 fallback = invoice.invoice_line_ids[:1].account_id.id if invoice.invoice_line_ids[
@@ -459,14 +514,14 @@ class VetAnimalVisit(models.Model):
                 else:
                     raise UserError(_("Invoice created but some lines have no account. Configure income accounts."))
 
-            # --- Post Invoice ---
             invoice.action_post()
             visit.invoice_ids = [(4, invoice.id)]
             _logger.info("Invoice %s created and posted for visit %s", invoice.name, visit.name)
+            visit._sync_state_with_payment()
 
             return True
+
     def action_pay_invoice(self):
-        """Open custom payment wizard for this visit's invoices"""
         self.ensure_one()
         if not self.invoice_ids:
             raise UserError(_("No invoice found for this visit."))
@@ -478,14 +533,12 @@ class VetAnimalVisit(models.Model):
         return {
             "name": _("Register Payment"),
             "type": "ir.actions.act_window",
-            "res_model": "vet.animal.visit.payment.wizard",  # 👈 custom wizard
+            "res_model": "vet.animal.visit.payment.wizard",
             "view_mode": "form",
             "target": "new",
             "context": {"default_visit_id": self.id},
         }
-    # ------------------------
-    # Deliver Vaccines (stock moves)
-    # ------------------------
+
     def action_deliver_vaccines(self):
         StockPicking = self.env['stock.picking']
         StockMove = self.env['stock.move']
@@ -549,27 +602,28 @@ class VetAnimalVisit(models.Model):
                 picking.unlink()
 
     def action_view_invoices(self):
-        """Show only unpaid/partially paid invoices for this visit"""
         self.ensure_one()
-        unpaid_invoices = self.invoice_ids.filtered(lambda inv: inv.payment_state != 'paid')
-        if not unpaid_invoices:
-            return {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {'title': _("No Unpaid Invoices"), 'message': _("All invoices for this visit are fully paid."), 'sticky': False}}
+        if not self.invoice_ids:
+            return {'type': 'ir.actions.client', 'tag': 'display_notification',
+                    'params': {'title': _("No Invoices"), 'message': _("No invoices exist for this visit."),
+                               'sticky': False}}
         return {
             'name': _("Invoices"),
             'type': 'ir.actions.act_window',
             'res_model': 'account.move',
             'view_mode': 'list,form',
             'views': [
-                (self.env.ref('vet_new.view_vet_animal_visit_invoice_list').id, 'list') if self.env.ref('vet_new.view_vet_animal_visit_invoice_list', False) else (False, 'list'),
-                (self.env.ref('vet_new.view_vet_animal_visit_invoice_form').id, 'form') if self.env.ref('vet_new.view_vet_animal_visit_invoice_form', False) else (False, 'form')
+                (self.env.ref('vet_new.view_vet_animal_visit_invoice_list').id, 'list') if self.env.ref(
+                    'vet_new.view_vet_animal_visit_invoice_list', False) else (False, 'list'),
+                (self.env.ref('vet_new.view_vet_animal_visit_invoice_form').id, 'form') if self.env.ref(
+                    'vet_new.view_vet_animal_visit_invoice_form', False) else (False, 'form')
             ],
-            'domain': [('id', 'in', unpaid_invoices.ids)],
+            'domain': [('id', 'in', self.invoice_ids.ids)],
             'context': {'default_visit_id': self.id},
         }
 
     @api.onchange('owner_id')
     def _onchange_owner_selected_animals(self):
-        """Limit Select Animal field to Owner’s Animals"""
         if self.owner_id:
             return {'domain': {'selected_animal_id': [('owner_id', '=', self.owner_id.id)]}}
         return {'domain': {'selected_animal_id': []}}
@@ -603,7 +657,6 @@ class VetAnimalVisit(models.Model):
             self.contact_number = ''
 
     def action_complete_payment(self):
-        """Open the payment registration wizard to complete payment for all unpaid invoices of this visit's owner."""
         self.ensure_one()
         if not self.invoice_ids:
             raise UserError(_("No invoice found for this visit."))
@@ -612,13 +665,13 @@ class VetAnimalVisit(models.Model):
         invoices = self.env['account.move'].search([
             ('partner_id', '=', partner.id),
             ('move_type', '=', 'out_invoice'),
+            ('state', '=', 'posted'),
             ('payment_state', 'in', ['not_paid', 'partial']),
-        ], order="invoice_date asc")
+        ], order='invoice_date asc, id asc')
 
         if not invoices:
             raise UserError(_("No unpaid invoices found for this owner."))
 
-        # Return the native Odoo payment wizard
         return {
             'name': _('Register Payment'),
             'type': 'ir.actions.act_window',
@@ -634,13 +687,10 @@ class VetAnimalVisit(models.Model):
                 'default_partner_type': 'customer',
             }
         }
-
-
-# ------------------------
-# Extend vet.animal display
-# ------------------------
 class VetAnimal(models.Model):
     _inherit = "vet.animal"
+
+
 
     def name_get(self):
         result = []
@@ -677,9 +727,7 @@ class VetAnimal(models.Model):
             return []
 
     def action_view_invoices(self):
-        """Show invoices for this animal (visits link invoices via visit_id)."""
         self.ensure_one()
-        # Use visit_id domain on account.move (make sure your account.move has visit_id field)
         return {
             'name': 'Invoices',
             'type': 'ir.actions.act_window',
@@ -693,13 +741,6 @@ class VetAnimal(models.Model):
             'context': {'create': False},
         }
 
-
-# ------------------------
-# Payment Wizard
-# ------------------------
-from odoo import api, fields, models, _
-from odoo.exceptions import UserError
-
 class VetAnimalVisitPaymentWizard(models.TransientModel):
     _name = "vet.animal.visit.payment.wizard"
     _description = "Animal Visit Payment Wizard"
@@ -710,83 +751,168 @@ class VetAnimalVisitPaymentWizard(models.TransientModel):
         string="Payment Method",
         required=True,
     )
+    journal_id = fields.Many2one(
+        "account.journal",
+        string="Journal",
+        domain="[('type', '=', payment_method)]",
+        required=True,
+        default=lambda self: self.env["account.journal"].search(
+            [("type", "=", "cash")], limit=1
+        ),
+    )
     amount = fields.Float(string="Amount", required=True)
 
     def action_confirm_payment(self):
+        """Register payment for the visit invoice(s) using Odoo 18 standard receipts,
+        update latest payment amount, handle receipt generation, and update visit state."""
         self.ensure_one()
-        visit = self.visit_id
 
-        if not visit.owner_id or not visit.owner_id.partner_id:
-            raise UserError(_("This visit has no linked owner/partner."))
+        # 1️⃣ Re-browse visit safely
+        visit = self.env['vet.animal.visit'].browse(self.visit_id.id)
+        if not visit.exists():
+            raise UserError(_("The visit record does not exist or has been deleted."))
+
+        invoices = visit.invoice_ids.filtered(lambda m: m.state == "posted")
+        if not invoices:
+            raise UserError(_("No posted invoice found for this visit."))
 
         partner = visit.owner_id.partner_id
+        if not partner:
+            raise UserError(_("Visit owner has no linked partner. Cannot process payment."))
 
-        # Find unpaid invoices for this partner
-        invoices = self.env['account.move'].search([
-            ('partner_id', '=', partner.id),
-            ('move_type', '=', 'out_invoice'),
-            ('state', '=', 'posted'),
-            ('payment_state', 'in', ['not_paid', 'partial']),
-        ], order='invoice_date asc, id asc')
+        amount = self.amount
+        total_residual = sum(invoices.mapped("amount_residual"))
 
-        if not invoices:
-            raise UserError(_("No unpaid invoices found for %s.") % partner.display_name)
+        if amount <= 0:
+            raise UserError(_("Payment amount must be greater than zero."))
+        if amount > total_residual:
+            raise UserError(
+                _("You are trying to pay more (%.2f) than the remaining balance (%.2f).")
+                % (amount, total_residual)
+            )
 
-        if self.amount <= 0:
-            raise UserError(_("Payment amount must be positive."))
+        # 2️⃣ Update the latest payment amount on the visit
+        visit.write({'latest_payment_amount': amount})
+        _logger.info("Visit %s: Updated latest_payment_amount to %s", visit.name, amount)
 
-        journal_type = 'cash' if self.payment_method == 'cash' else 'bank'
-        journal = self.env['account.journal'].search([('type', '=', journal_type)], limit=1)
-        if not journal:
-            raise UserError(_("No %s journal found.") % self.payment_method)
+        # 3️⃣ Try standard Odoo 18 payment register
+        try:
+            PaymentRegister = self.env['account.payment.register']
+            ctx = {
+                'active_model': 'account.move',
+                'active_ids': invoices.ids,
+                'default_amount': amount,
+                'default_partner_id': partner.id,
+                'default_payment_type': 'inbound',
+                'default_partner_type': 'customer',
+                'default_journal_id': self.journal_id.id,
+            }
+            payment_wizard = PaymentRegister.with_context(ctx).create({})
+            payment_wizard._create_payments()
+            _logger.info("Visit %s: Payment registered successfully via account.payment.register", visit.name)
+        except Exception as e:
+            _logger.warning("Standard payment register failed for visit %s, falling back to manual journal entry: %s",
+                            visit.name, e)
 
-        remaining_amount = self.amount
-
-        # Context for the register payment wizard
-        ctx = {
-            'active_model': 'account.move',
-            'active_ids': invoices.ids,
-        }
-
-        register_vals = {
-            'amount': remaining_amount,
-            'journal_id': journal.id,
-            'payment_date': fields.Date.context_today(self),
-            'payment_type': 'inbound',
-            'partner_type': 'customer',
-        }
-
-        # Create payment register wizard and generate payments
-        register = self.env['account.payment.register'].with_context(ctx).create(register_vals)
-        payments = register.action_create_payments()
-
-        # ✅ Ensure payments are posted (important for cash journals)
-        if payments and hasattr(payments, 'action_post'):
-            payments.action_post()
-
-        # If extra money remains (credit), record it separately
-        if remaining_amount > sum(invoices.mapped('amount_residual')):
-            credit = self.env['account.payment'].create({
-                'journal_id': journal.id,
-                'amount': remaining_amount - sum(invoices.mapped('amount_residual')),
-                'currency_id': self.env.company.currency_id.id,
-                'date': fields.Date.context_today(self),
-                'payment_type': 'inbound',
-                'partner_type': 'customer',
-                'partner_id': partner.id,
-                'company_id': self.env.company.id,
+            # 4️⃣ Fallback: Manual journal entry
+            payment_move = self.env["account.move"].create({
+                "move_type": "entry",
+                "date": fields.Date.context_today(self),
+                "line_ids": [
+                    (0, 0, {
+                        "name": "Payment",
+                        "debit": 0.0,
+                        "credit": amount,
+                        "account_id": partner.property_account_receivable_id.id,
+                        "partner_id": partner.id,
+                    }),
+                    (0, 0, {
+                        "name": "Bank/Cash",
+                        "debit": amount,
+                        "credit": 0.0,
+                        "account_id": self.journal_id.default_account_id.id,
+                        "partner_id": partner.id,
+                    }),
+                ],
             })
-            credit.action_post()
+            payment_move.action_post()
 
-        # Mark visit done if all invoices are paid
-        if visit.invoice_ids and all(inv.payment_state == 'paid' for inv in visit.invoice_ids):
-            visit.state = 'done'
+            # Partial reconciliation
+            receivable_lines = invoices.mapped("line_ids").filtered(
+                lambda l: l.account_id == partner.property_account_receivable_id and not l.reconciled
+            )
+            payment_lines = payment_move.line_ids.filtered(
+                lambda l: l.account_id == partner.property_account_receivable_id
+            )
+            for payment_line in payment_lines:
+                if not receivable_lines:
+                    break
+                line_to_reconcile = receivable_lines[0]
+                (line_to_reconcile + payment_line).reconcile()
+                receivable_lines -= line_to_reconcile
+            _logger.info("Visit %s: Manual journal entry created and reconciled", visit.name)
 
-        # Log message
-        visit.message_post(body=_("Applied payment of %s %s via wizard (%s).") % (
-            self.amount,
-            self.env.company.currency_id.symbol or "",
-            journal.display_name
-        ))
+        # 5️⃣ Recompute invoice states (no manual overrides!)
+        invoices.invalidate_recordset(['payment_state', 'amount_residual'])
 
-        return {'type': 'ir.actions.client', 'tag': 'reload'}
+        # 6️⃣ Update visit payment state, amount received, and status
+        if visit.exists():
+            visit.invalidate_recordset(['payment_state', 'is_fully_paid', 'amount_received'])
+
+            visit._sync_state_with_payment()
+
+
+            _logger.info(
+                "Visit %s: State=%s, payment_state=%s, is_fully_paid=%s, amount_received=%s",
+                visit.name, visit.state, visit.payment_state, visit.is_fully_paid, visit.amount_received
+            )
+
+        # 7️⃣ Unified Return Receipt PDF
+        try:
+            return self.env.ref('account.account_payment_receipt_action').report_action(invoices)
+        except Exception:
+            _logger.warning("Invoice receipt action failed for visit %s; falling back to visit receipt.", visit.name,
+                            exc_info=True)
+
+        try:
+            return invoices.action_print_visit_receipt_from_invoice()
+        except UserError as ue:
+            _logger.warning("No visit found for invoice(s) after payment for visit %s: %s", visit.name, ue)
+
+        try:
+            return {
+                'type': 'ir.actions.report',
+                'report_name': 'vet_new.report_visit_receipt',
+                'report_type': 'qweb-pdf',
+                'context': {'active_model': 'vet.animal.visit'},
+                'docids': [visit.id],
+            }
+        except Exception as e:
+            _logger.error("All receipt print attempts failed for visit %s: %s", visit.name, e)
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Receipt not available'),
+                    'message': _('Payment posted, but no receipt could be generated.'),
+                    'sticky': False,
+                }
+            }
+
+
+# reports/report_visit_receipt.py
+from odoo import api, models
+
+class ReportVisitReceipt(models.AbstractModel):
+    _name = 'report.vet_new.report_visit_receipt'
+    _description = 'Visit Receipt Report'
+
+    @api.model
+    def _get_report_values(self, docids, data=None):
+        docs = self.env['vet.animal.visit'].browse(docids)
+        return {
+            'doc_ids': docs.ids,
+            'doc_model': 'vet.animal.visit',
+            'docs': docs,
+        }
+

@@ -45,6 +45,7 @@ Manage the animals that visit our veterinarian
 'assets': {
     'web.report_assets_common': [
         'vet_new/static/src/img/logo.png',
+        'vet_new/static/src/css/vet_styles.css',
     ]
 },
 'demo': [],

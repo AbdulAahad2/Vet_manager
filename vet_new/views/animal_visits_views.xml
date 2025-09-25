@@ -22,7 +22,7 @@
                             <div class="d-flex justify-content-between align-items-start mb-2">
                                 <!-- Animal Image or Fallback Icon -->
                                 <div class="o_kanban_image me-2">
-                                    <t t-if="1 == 1">
+                                    <t t-if="record.animal_pic.raw_value">
                                         <field name="animal_pic" class="oe_avatar" widget="image" options="{'size': [80, 80]}"/>
                                     </t>
                                     <t t-else="">
@@ -70,6 +70,7 @@
                 <group>
                     <field name="visit_id" invisible="1"/>
                     <field name="payment_method"/>
+                    <field name="journal_id"/>
                     <field name="amount"/>
                 </group>
                 <footer>
@@ -92,8 +93,7 @@
         <field name="context">{'default_visit_id': active_id}</field>
     </record>
 
-
-   <!-- ===================== FORM VIEW ===================== -->
+    <!-- ===================== FORM VIEW ===================== -->
     <record id="view_vet_animal_visit_form" model="ir.ui.view">
         <field name="name">vet.animal.visit.form</field>
         <field name="model">vet.animal.visit</field>
@@ -102,46 +102,41 @@
                 <sheet>
                     <header>
                         <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,done,cancel"/>
-                        <button name="action_pay_invoice" type="object" string="Pay Invoice" invisible="has_unpaid_invoice"/>
+
                     </header>
-                    <button name="%(action_vet_animal_visit_payment_wizard)d"
-                        string="Complete Pay"
-                        type="action"
-                        class="btn-primary"
-                        invisible="not has_unpaid_invoice"/>
+                    <button name="action_pay_invoice" type="object" string="Pay Invoice"/>
 
-                    <button name="action_pay_invoice" type="object" string="Pay Invoice" invisible="has_unpaid_invoice"/>
-
+                    <button name="action_print_visit_receipt" type="object" string="Print Receipt" class="btn-primary"/>
                     <div class="oe_title mb-2">
                         <h2><field name="name"/></h2>
                     </div>
-                        <!-- LEFT PANEL -->
-                        <group style="flex:2; gap:0.2rem; margin:0;">
-                            <!-- Owner Information -->
-                            <group string="Owner Information" class="p-2 border rounded shadow-sm" style="background:#f8f9fa; margin-bottom:0;">
-                                <field name="owner_id" on_change="1"/>
-                                <field name="contact_number" on_change="1"/>
-                                <field name="animal_ids" widget="many2many_tags" string="Owner's Animals" domain="[('owner_id', '=', owner_id)]"/>
-                                <field name="selected_animal_id" string="Select Animal" domain="[('id', 'in', animal_ids)]"/>
-                                <field name="owner_unpaid_balance" readonly="1"/>
-                            </group>
+                    <!-- LEFT PANEL -->
+                    <group style="flex:2; gap:0.2rem; margin:0;">
+                        <!-- Owner Information -->
+                        <group string="Owner Information" class="p-2 border rounded shadow-sm" style="background:#f8f9fa; margin-bottom:0;">
+                            <field name="owner_id" on_change="1"/>
+                            <field name="contact_number" on_change="1"/>
+                            <field name="animal_ids" widget="many2many_tags" string="Owner's Animals" domain="[('owner_id', '=', owner_id)]"/>
+                            <field name="selected_animal_id" string="Select Animal" domain="[('id', 'in', animal_ids)]"/>
+                            <field name="owner_unpaid_balance" readonly="1"/>
+                        </group>
 
-                            <!-- General Info -->
-                            <group string="General Info" class="p-2 border rounded shadow-sm" style="background:#f8f9fa; margin-bottom:0;">
-                                <div class="d-flex" style="gap:0.2rem;">
-                                    <div style="flex:1;">
-                                        <group>
-                                            <field name="animal_pic" class="oe_avatar" widget="image" style="margin-right:50px; height:90px;width:90px;"/>
-                                            <field name="animal_id" string="Animal ID"/>
-                                            <field name="animal_display_name"/>
-                                            <field name="date"/>
-                                            <field name="doctor_id"/>
-                                            <field name="notes"/>
-                                            <field name="treatment_charge" string="Treatment Charge"/>
-                                        </group>
-                                    </div>
+                        <!-- General Info -->
+                        <group string="General Info" class="p-2 border rounded shadow-sm" style="background:#f8f9fa; margin-bottom:0;">
+                            <div class="d-flex" style="gap:0.2rem;">
+                                <div style="flex:1;">
+                                    <group>
+                                        <field name="animal_pic" class="oe_avatar" widget="image" style="margin-right:50px; height:90px;width:90px;"/>
+                                        <field name="animal_id" string="Animal ID"/>
+                                        <field name="animal_display_name"/>
+                                        <field name="date"/>
+                                        <field name="doctor_id"/>
+                                        <field name="notes"/>
+                                        <field name="treatment_charge" string="Treatment Charge"/>
+                                    </group>
                                 </div>
-                            </group>
+                            </div>
+                        </group>
 
                         <!-- RIGHT PANEL: Receipt -->
                         <group string="Receipt" class="p-2 border rounded shadow-sm"
@@ -192,7 +187,7 @@
                         <page string="Medicines">
                             <field name="medicine_line_ids">
                                 <list editable="bottom">
-                                    <field name="service_id"  string="Vaccine" domain="[('service_type','=','vaccine')]"/>
+                                    <field name="service_id" string="Vaccine" domain="[('service_type','=','vaccine')]"/>
                                     <field name="quantity"/>
                                     <field name="price_unit"/>
                                     <field name="subtotal" readonly="1"/>
@@ -204,6 +199,7 @@
             </form>
         </field>
     </record>
+
     <!-- ===================== LIST VIEW ===================== -->
     <record id="view_vet_animal_visit_list" model="ir.ui.view">
         <field name="name">vet.animal.visit.list</field>

@@ -7,10 +7,14 @@ class VetAnimalHistoryWizard(models.TransientModel):
     animal_id = fields.Many2one("vet.animal", string="Animal")
     animal_name = fields.Char(string="Animal Name", readonly=False)
     partner_id = fields.Many2one("res.partner", string="Owner")
-    contact_number = fields.Char(related="partner_id.phone", string="Owner Contact", store=True, readonly=False)
+    contact_number = fields.Char(string="Owner Contact")
     history_line_ids = fields.One2many("vet.animal.history.line", "wizard_id", string="History Lines")
     total_visits = fields.Integer(string="Total Visits", readonly=True)
 
+    @api.onchange('partner_id')
+    def _onchange_partner(self):
+        if self.partner_id:
+            self.contact_number = self.partner_id.phone
     @api.onchange('animal_id')
     def _onchange_animal(self):
         if self.animal_id and self.animal_id.owner_id:

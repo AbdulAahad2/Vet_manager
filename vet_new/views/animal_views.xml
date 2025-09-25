@@ -4,13 +4,13 @@
         <field name="name">vet.animal.list</field>
         <field name="model">vet.animal</field>
         <field name="arch" type="xml">
-            <list decoration-info="age &lt; 1" decoration-danger="age &gt; 10">
-                <field name="image_1920" widget="image"/>
+            <list string="Animals" create="true" delete="true">
+                <field name="image_1920" widget="image" class="oe_avatar" options="{'size': [80, 80]}"/>
                 <field name="microchip_no" string="Animal ID"/>
                 <field name="name" string="Animal Name"/>
                 <field name="species" string="Species"/>
                 <field name="breed" string="Breed"/>
-                <field name="owner_id" string="Owner" widget="many2one"/>
+                <field name="owner_id" string="Owner"/>
                 <field name="contact_number" string="Owner Contact"/>
                 <field name="age" string="Age (Years + Months)"/>
             </list>

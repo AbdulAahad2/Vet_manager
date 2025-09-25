@@ -21,3 +21,4 @@ access_vet_animal_admin,vet.animal.admin,model_vet_animal,base.group_system,1,1,
 access_vet_owner_admin,vet.owner.admin,model_vet_animal_owner,base.group_system,1,1,1,1
 access_vet_doctor_admin,vet.doctor.admin,model_vet_animal_doctor,base.group_system,1,1,1,1
 access_vet_visit_admin,vet.visit.admin,model_vet_animal_visit,base.group_system,1,1,1,1
+access_report_vet_new_report_visit_receipt,report.vet_new.report_visit_receipt,model_report_vet_new_report_visit_receipt,,1,1,1,1

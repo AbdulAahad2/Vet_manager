@@ -21,7 +21,8 @@ class VetAnimal(models.Model):
         copy=False,
         readonly=True,
         index=True,
-        default=lambda self: self.env['ir.sequence'].next_by_code('vet.animal.microchip') or 'HT000000',
+        default="New",
+
         tracking=True
     )
     name = fields.Char(string="Name", required=True, tracking=True)
@@ -45,6 +46,7 @@ class VetAnimal(models.Model):
         store=True,
         index=True
     )
+
     @api.depends('dob')
     def _compute_age(self):
         for record in self:
@@ -58,25 +60,16 @@ class VetAnimal(models.Model):
                     if months > 0:
                         record.age = f"{years} year{'s' if years > 1 else ''} {months} month{'s' if months > 1 else ''}"
                     else:
-                        record.age= f"{years} year{'s' if years > 1 else ''}"
+                        record.age = f"{years} year{'s' if years > 1 else ''}"
                 else:
-                    record.age = f"{months} month{'s' if months != 1 else ''}"
+                    record.age = f"{months} month{'s' if months > 1 else ''}"
             else:
                 record.age = "0"
 
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
-            if not vals.get('owner_id'):
-                raise ValidationError("Add an owner.")
-            if not vals.get('microchip_no'):
-                vals['microchip_no'] = self.env['ir.sequence'].next_by_code('vet.animal.microchip') or 'HT000000'
-        return super(VetAnimal, self).create(vals_list)
-
-    @api.model_create_multi
-    def create(self, vals_list):
-        for vals in vals_list:
-            # If partner_id is given but no owner_id, auto-assign
+            # If partner_id provided but no owner_id, auto-assign owner
             if vals.get("partner_id") and not vals.get("owner_id"):
                 owner = self.env["vet.animal.owner"].search(
                     [("partner_id", "=", vals["partner_id"])],
@@ -85,7 +78,13 @@ class VetAnimal(models.Model):
                 if not owner:
                     raise ValidationError("This contact is not linked to a vet owner.")
                 vals["owner_id"] = owner.id
-        return super().create(vals_list)
+            # Mandatory owner check
+            if not vals.get('owner_id'):
+                raise ValidationError("Add an owner.")
+            # Generate microchip if not provided
+            if not vals.get('microchip_no'):
+                vals['microchip_no'] = self.env['ir.sequence'].next_by_code('vet.animal.microchip') or 'HT000000'
+        return super(VetAnimal, self).create(vals_list)
 
     def name_get(self):
         result = []
